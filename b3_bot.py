@@ -1,173 +1,218 @@
 import asyncio
 import yfinance as yf
 import pandas as pd
-import ta
+import numpy as np
 from telegram import Bot
-from datetime import datetime
+import ta
 
-# ==========================
-# CONFIGURAÇÕES
-# ==========================
+# ================= CONFIG =================
 
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
 
 bot = Bot(token=TOKEN)
 
-# Lista de ações B3
-TICKERS = [
-    "PETR4.SA", "VALE3.SA", "ITUB4.SA", "BBDC4.SA",
-    "BBAS3.SA", "WEGE3.SA", "ABEV3.SA", "MGLU3.SA",
-    "PETR3.SA", "B3SA3.SA"
+ACOES = [
+    "PETR4.SA","VALE3.SA","ITUB4.SA",
+    "BBDC4.SA","ABEV3.SA","BBAS3.SA",
+    "WEGE3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA"
 ]
 
-IBOV = "^BVSP"
-
-# ==========================
-# FUNÇÃO DOWNLOAD
-# ==========================
+# ================= DOWNLOAD =================
 
 def baixar_dados(ticker):
     try:
-        df = yf.download(
-            ticker,
-            period="1y",
+        df = yf.Ticker(ticker).history(
+            period="6mo",
             interval="1d",
-            progress=False,
-            threads=False
+            auto_adjust=True
         )
 
         if df is None or df.empty:
-            print(f"[ERRO] Sem dados: {ticker}")
+            print(f"[ERRO] {ticker} vazio")
             return None
 
-        df.dropna(inplace=True)
+        df = df.dropna()
+        if len(df) < 50:
+            print(f"[ERRO] {ticker} poucos dados")
+            return None
+
         return df
 
     except Exception as e:
         print(f"[ERRO DOWNLOAD] {ticker}: {e}")
         return None
 
-# ==========================
-# ANALISE PROFISSIONAL
-# ==========================
 
-def analisar_acao(df):
-    df["SMA20"] = ta.trend.sma_indicator(df["Close"], window=20)
-    df["SMA200"] = ta.trend.sma_indicator(df["Close"], window=200)
-    df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
-    macd = ta.trend.MACD(df["Close"])
-    df["MACD"] = macd.macd_diff()
+# ================= SENTIMENTO GLOBAL =================
 
-    ultima = df.iloc[-1]
-
+def sentimento_mercado():
+    indices = ["^GSPC","^IXIC","^DJI","^GDAXI","^FTSE","^N225"]
     score = 0
 
-    # Tendência principal (Média 200)
-    if ultima["Close"] > ultima["SMA200"]:
-        score += 1
+    for ticker in indices:
+        df = baixar_dados(ticker)
+        if df is None:
+            continue
+
+        if df["Close"].iloc[-1] > df["Close"].iloc[-2]:
+            score += 1
+        else:
+            score -= 1
+
+    if score >= 2:
+        return "ALTISTA 🌍📈"
+    elif score <= -2:
+        return "BAIXISTA 🌍📉"
     else:
-        score -= 1
+        return "NEUTRO 🌎"
 
-    # Tendência curta
-    if ultima["Close"] > ultima["SMA20"]:
-        score += 1
-    else:
-        score -= 1
 
-    # RSI
-    if ultima["RSI"] < 35:
-        score += 1
-    elif ultima["RSI"] > 65:
-        score -= 1
-
-    # MACD
-    if ultima["MACD"] > 0:
-        score += 1
-    else:
-        score -= 1
-
-    # Percentual do dia
-    variacao = ((ultima["Close"] / df["Close"].iloc[-2]) - 1) * 100
-
-    return score, variacao
-
-# ==========================
-# TENDÊNCIA IBOV
-# ==========================
+# ================= TENDÊNCIA IBOV =================
 
 def tendencia_ibov():
-    df = baixar_dados(IBOV)
+    df = baixar_dados("^BVSP")
     if df is None:
         return "Indefinida"
 
-    df["SMA200"] = ta.trend.sma_indicator(df["Close"], window=200)
-    ultima = df.iloc[-1]
+    close = df["Close"]
+    sma200 = close.rolling(200).mean()
 
-    if ultima["Close"] > ultima["SMA200"]:
-        return "📈 Alta (Acima da Média 200)"
+    if close.iloc[-1] > sma200.iloc[-1]:
+        return "Alta (acima da MM200) 📈"
     else:
-        return "📉 Baixa (Abaixo da Média 200)"
+        return "Baixa (abaixo da MM200) 📉"
 
-# ==========================
-# SCANNER PRINCIPAL
-# ==========================
 
-async def scanner():
-    while True:
-        print("🔎 Iniciando varredura...")
+# ================= ANALISE AÇÃO =================
 
-        compras = []
-        vendas = []
-        ranking = []
+def analisar_acao(ticker):
+    df = baixar_dados(ticker)
+    if df is None:
+        return None
 
-        for ticker in TICKERS:
-            df = baixar_dados(ticker)
-            if df is None:
-                continue
+    close = df["Close"]
+    volume = df["Volume"]
 
-            score, variacao = analisar_acao(df)
+    sma9 = close.rolling(9).mean()
+    sma21 = close.rolling(21).mean()
+    sma200 = close.rolling(200).mean()
 
-            ranking.append((ticker, variacao))
+    rsi = ta.momentum.RSIIndicator(close).rsi()
 
-            # MODO MAIS AGRESSIVO
-            if score >= 1:
-                compras.append(f"{ticker} | {variacao:.2f}%")
-            elif score <= -1:
-                vendas.append(f"{ticker} | {variacao:.2f}%")
+    variacao_dia = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100
 
-        ranking.sort(key=lambda x: x[1], reverse=True)
-        top3 = ranking[:3]
+    score = 0
 
-        ibov_status = tendencia_ibov()
+    # Estratégia mais agressiva
+    if sma9.iloc[-1] > sma21.iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
-        mensagem = f"""
-📊 <b>SCANNER B3 PROFISSIONAL 24H</b>
-🕒 {datetime.now().strftime('%d/%m/%Y %H:%M')}
+    if close.iloc[-1] > sma200.iloc[-1]:
+        score += 1
+    else:
+        score -= 1
 
-📌 <b>Tendência IBOV:</b>
-{ibov_status}
+    if rsi.iloc[-1] < 70:
+        score += 1
+    if rsi.iloc[-1] > 30:
+        score += 1
 
-🔥 <b>Top 3 Força do Dia:</b>
+    if variacao_dia > 0:
+        score += 1
+    else:
+        score -= 1
+
+    # Classificação
+    if score >= 3:
+        sinal = "🟢 COMPRA"
+    elif score <= -2:
+        sinal = "🔴 VENDA"
+    else:
+        sinal = "🟡 NEUTRO"
+
+    return {
+        "ticker": ticker.replace(".SA",""),
+        "score": score,
+        "sinal": sinal,
+        "variacao": round(variacao_dia,2)
+    }
+
+
+# ================= EXECUÇÃO =================
+
+async def executar():
+    print("Executando análise...")
+
+    sentimento = sentimento_mercado()
+    ibov = tendencia_ibov()
+
+    compras = []
+    vendas = []
+    neutras = []
+    ranking = []
+
+    for acao in ACOES:
+        resultado = analisar_acao(acao)
+        if resultado is None:
+            continue
+
+        ranking.append(resultado)
+
+        if "COMPRA" in resultado["sinal"]:
+            compras.append(resultado)
+        elif "VENDA" in resultado["sinal"]:
+            vendas.append(resultado)
+        else:
+            neutras.append(resultado)
+
+    ranking = sorted(ranking, key=lambda x: x["score"], reverse=True)
+
+    mensagem = f"""
+📊 ANÁLISE DIÁRIA B3
+
+🌍 Sentimento Global: {sentimento}
+📈 Tendência IBOV: {ibov}
+
+━━━━━━━━━━━━━━━━━━
+
+🟢 AÇÕES EM COMPRA:
 """
 
-        for acao in top3:
-            mensagem += f"• {acao[0]} | {acao[1]:.2f}%\n"
+    if compras:
+        for c in compras:
+            mensagem += f"{c['ticker']} | Score {c['score']} | {c['variacao']}%\n"
+    else:
+        mensagem += "Nenhuma\n"
 
-        mensagem += "\n🟢 <b>Sinais de COMPRA:</b>\n"
-        mensagem += "\n".join(compras) if compras else "Nenhuma"
+    mensagem += "\n🔴 AÇÕES EM VENDA:\n"
 
-        mensagem += "\n\n🔴 <b>Sinais de VENDA:</b>\n"
-        mensagem += "\n".join(vendas) if vendas else "Nenhuma"
+    if vendas:
+        for v in vendas:
+            mensagem += f"{v['ticker']} | Score {v['score']} | {v['variacao']}%\n"
+    else:
+        mensagem += "Nenhuma\n"
 
-        await bot.send_message(chat_id=CHAT_ID, text=mensagem, parse_mode="HTML")
+    mensagem += "\n🔥 TOP 3 MAIS FORTES DO DIA:\n"
 
-        print("✅ Enviado com sucesso.")
-        await asyncio.sleep(1800)  # 30 minutos
+    for top in ranking[:3]:
+        mensagem += f"{top['ticker']} ({top['score']} pts | {top['variacao']}%)\n"
 
-# ==========================
-# EXECUÇÃO
-# ==========================
+    await bot.send_message(chat_id=CHAT_ID, text=mensagem)
+
+
+async def scheduler():
+    while True:
+        try:
+            await executar()
+        except Exception as e:
+            print("Erro geral:", e)
+
+        await asyncio.sleep(3600)  # roda a cada 1 hora
+
 
 if __name__ == "__main__":
-    asyncio.run(scanner())
+    print("Robô B3 iniciado...")
+    asyncio.run(scheduler())
