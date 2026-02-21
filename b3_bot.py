@@ -4,13 +4,15 @@ import yfinance as yf
 import pandas as pd
 import ta
 from telegram import Bot
+import requests
 
 # ================= CONFIG =================
+
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
 
 if not TOKEN or not CHAT_ID:
-    raise Exception("TOKEN ou CHAT_ID não configurado nas variáveis do Railway.")
+    raise Exception("TOKEN ou CHAT_ID não configurado no Railway.")
 
 bot = Bot(token=TOKEN)
 
@@ -20,126 +22,160 @@ ACOES = [
     "WEGE3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA"
 ]
 
-# ================= FUNÇÕES =================
+INDICES_GLOBAIS = [
+    "^GSPC",  # S&P500
+    "^IXIC",  # Nasdaq
+    "^DJI",   # Dow Jones
+    "^BVSP"   # IBOV
+]
 
-def baixar_dados(ticker):
+session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0"})
+
+# ================= DOWNLOAD =================
+
+def baixar(ticker, periodo="3mo"):
     try:
         df = yf.download(
             ticker,
-            period="6mo",
+            period=periodo,
             interval="1d",
+            auto_adjust=True,
             progress=False,
-            auto_adjust=True
+            threads=False,
+            session=session
         )
         if df.empty:
-            print(f"Sem dados para {ticker}")
             return None
         return df.dropna()
-    except Exception as e:
-        print(f"Erro ao baixar {ticker}: {e}")
+    except:
         return None
 
+# ================= SENTIMENTO GLOBAL =================
 
-def calcular_score(df):
+def sentimento_mercado():
+    score = 0
+    total = 0
+
+    for indice in INDICES_GLOBAIS:
+        df = baixar(indice, "5d")
+        if df is None or len(df) < 2:
+            continue
+
+        hoje = df["Close"].iloc[-1]
+        ontem = df["Close"].iloc[-2]
+
+        if hoje > ontem:
+            score += 1
+        else:
+            score -= 1
+
+        total += 1
+
+    if total == 0:
+        return "INDEFINIDO"
+
+    if score >= 2:
+        return "🟢 ALTISTA"
+    elif score <= -2:
+        return "🔴 BAIXISTA"
+    else:
+        return "🟡 NEUTRO"
+
+# ================= ANÁLISE DA AÇÃO =================
+
+def analisar_acao(df):
     close = df["Close"]
     volume = df["Volume"]
 
     sma9 = close.rolling(9).mean().iloc[-1]
     sma21 = close.rolling(21).mean().iloc[-1]
-
     rsi = ta.momentum.RSIIndicator(close).rsi().iloc[-1]
-
     vol_media = volume.rolling(20).mean().iloc[-1]
     vol_atual = volume.iloc[-1]
 
-    score = 50
+    score = 0
 
-    # Tendência
-    score += 20 if sma9 > sma21 else -20
-
-    # RSI
-    if rsi < 30:
-        score += 15
-    elif rsi > 70:
-        score -= 15
-
-    # Volume
-    if vol_atual > vol_media:
-        score += 10
-
-    return max(0, min(100, int(score)))
-
-
-def classificar(score):
-    if score >= 70:
-        return "🔥 FORTE COMPRA"
-    elif score <= 30:
-        return "🔻 FORTE VENDA"
+    if sma9 > sma21:
+        score += 1
     else:
-        return "⚖ NEUTRO"
+        score -= 1
 
+    if rsi < 30:
+        score += 1
+    elif rsi > 70:
+        score -= 1
 
-async def enviar_mensagem(texto):
+    if vol_atual > vol_media:
+        score += 1
+
+    if score >= 2:
+        return "🟢 COMPRA"
+    elif score <= -1:
+        return "🔴 VENDA"
+    else:
+        return "🟡 NEUTRO"
+
+# ================= ENVIO =================
+
+async def enviar(texto):
     partes = [texto[i:i+4000] for i in range(0, len(texto), 4000)]
     for parte in partes:
         await bot.send_message(chat_id=CHAT_ID, text=parte)
 
-
-# ================= LOOP PRINCIPAL =================
+# ================= LOOP =================
 
 async def scanner():
     print("Robô iniciado com sucesso.")
 
     while True:
-        print("Iniciando nova análise...")
+        print("Executando análise diária...")
 
-        ranking = []
-        alertas = []
+        sentimento = sentimento_mercado()
+
+        compras = []
+        vendas = []
+        neutros = []
 
         for acao in ACOES:
-            df = baixar_dados(acao)
+            df = baixar(acao)
 
             if df is None or len(df) < 30:
                 continue
 
-            try:
-                score = calcular_score(df)
-                sinal = classificar(score)
+            sinal = analisar_acao(df)
+            nome = acao.replace(".SA","")
 
-                nome = acao.replace(".SA","")
-                ranking.append((nome, score, sinal))
+            if "COMPRA" in sinal:
+                compras.append(nome)
+            elif "VENDA" in sinal:
+                vendas.append(nome)
+            else:
+                neutros.append(nome)
 
-                if score >= 70 or score <= 30:
-                    alertas.append(f"{nome} | {score} | {sinal}")
+            print(f"{nome} -> {sinal}")
 
-                print(f"{nome} analisada | Score: {score}")
+        texto = "📊 ANÁLISE DIÁRIA B3\n\n"
+        texto += f"Sentimento de Mercado: {sentimento}\n\n"
 
-            except Exception as e:
-                print(f"Erro ao analisar {acao}: {e}")
+        texto += "🟢 AÇÕES EM COMPRA:\n"
+        texto += "\n".join(compras) if compras else "Nenhuma"
+        texto += "\n\n"
 
-        if not ranking:
-            await enviar_mensagem("⚠ Nenhum dado disponível no momento.")
-            await asyncio.sleep(900)
-            continue
+        texto += "🔴 AÇÕES EM VENDA:\n"
+        texto += "\n".join(vendas) if vendas else "Nenhuma"
+        texto += "\n\n"
 
-        ranking.sort(key=lambda x: x[1], reverse=True)
+        texto += "🟡 NEUTRAS:\n"
+        texto += "\n".join(neutros) if neutros else "Nenhuma"
 
-        texto = "📊 SCANNER B3 24H\n\n"
-        for item in ranking:
-            texto += f"{item[0]} | {item[1]} | {item[2]}\n"
+        await enviar(texto)
 
-        await enviar_mensagem(texto)
+        print("Análise enviada. Próxima execução em 15 minutos.\n")
 
-        if alertas:
-            alerta_texto = "⚡ ALERTAS FORTES ⚡\n\n" + "\n".join(alertas)
-            await enviar_mensagem(alerta_texto)
-
-        print("Análise concluída. Aguardando 15 minutos...\n")
-
-        await asyncio.sleep(900)  # 15 minutos
-
+        await asyncio.sleep(900)
 
 # ================= START =================
 
 if __name__ == "__main__":
-    asyncio.run(scanner())  
+    asyncio.run(scanner())
