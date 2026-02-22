@@ -1,184 +1,140 @@
 import asyncio
+import requests
 import yfinance as yf
 import pandas as pd
+import numpy as np
+import os
+from datetime import datetime, time
 from telegram import Bot
-import ta
 
-# ================= IDENTIFICAÇÃO =================
-print("########## ROBÔ B3 VERSÃO FINAL ALEX ##########")
-
-# ================= CONFIG =================
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
+ALPHA_KEY = "OYSICYD1972XILCB"
 
 bot = Bot(token=TOKEN)
 
-ACOES = [
-    "PETR4.SA","VALE3.SA","ITUB4.SA",
-    "BBDC4.SA","ABEV3.SA","BBAS3.SA",
-    "WEGE3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA"
-]
+# ========== CONFIG ==========
+INDICES = {
+    "Dow Jones": "^DJI",
+    "S&P500": "^GSPC",
+    "Nasdaq": "^IXIC",
+    "DAX": "^GDAXI",
+    "FTSE": "^FTSE",
+    "Nikkei": "^N225"
+}
 
-# ================= DOWNLOAD =================
-def baixar_dados(ticker):
-    try:
-        df = yf.Ticker(ticker).history(period="1y", interval="1d")
-        if df is None or df.empty:
-            return None
-        return df.dropna()
-    except:
+COMMODITIES = {
+    "WTI": "CL=F",
+    "Ouro": "GC=F",
+    "Minério": "BZ=F"
+}
+
+ACOES = {
+    "PETR4": "PETR4.SA",
+    "VALE3": "VALE3.SA",
+    "BBAS3": "BBAS3.SA"
+}
+
+# ================= UTIL =================
+
+def variacao_dia(ticker):
+    df = yf.download(ticker, period="2d", interval="1d", progress=False)
+    if len(df) < 2:
         return None
+    return round(((df["Close"].iloc[-1] / df["Close"].iloc[-2]) - 1) * 100, 2)
 
-
-# ================= SENTIMENTO GLOBAL =================
 def sentimento_global():
-    indices = ["^GSPC","^IXIC","^DJI","^GDAXI","^FTSE","^N225"]
     score = 0
-
-    for ind in indices:
-        df = baixar_dados(ind)
-        if df is None or len(df) < 2:
+    detalhes = {}
+    for nome, ticker in INDICES.items():
+        var = variacao_dia(ticker)
+        if var is None:
             continue
-
-        if df["Close"].iloc[-1] > df["Close"].iloc[-2]:
-            score += 1
-        else:
-            score -= 1
-
-    if score >= 2:
-        return "ALTISTA 📈"
-    elif score <= -2:
-        return "BAIXISTA 📉"
+        detalhes[nome] = var
+        score += 1 if var > 0 else -1
+    if score > 2:
+        sent = "ALTISTA 📈"
+    elif score < -2:
+        sent = "BAIXISTA 📉"
     else:
-        return "NEUTRO"
+        sent = "NEUTRO ⚖"
+    return sent, detalhes
 
-
-# ================= TENDÊNCIA IBOV =================
 def tendencia_ibov():
-    df = baixar_dados("^BVSP")
-    if df is None or len(df) < 200:
-        return "SEM DADOS"
+    df = yf.download("^BVSP", period="1y", interval="1d", progress=False)
+    if len(df) < 200:
+        return "Dados insuficientes"
+    mm200 = df["Close"].rolling(200).mean().iloc[-1]
+    atual = df["Close"].iloc[-1]
+    return "ALTA (MM200)" if atual > mm200 else "BAIXA (MM200)"
 
-    close = df["Close"]
-    mm200 = close.rolling(200).mean()
-
-    if close.iloc[-1] > mm200.iloc[-1]:
-        return "ALTA (MM200)"
-    else:
-        return "BAIXA (MM200)"
-
-
-# ================= ANALISE AÇÃO =================
-def analisar_acao(ticker):
-    df = baixar_dados(ticker)
-    if df is None or len(df) < 200:
+def correlacao(t1, t2):
+    df1 = yf.download(t1, period="3mo", progress=False)["Close"]
+    df2 = yf.download(t2, period="3mo", progress=False)["Close"]
+    df = pd.concat([df1, df2], axis=1).dropna()
+    if len(df) < 10:
         return None
+    return round(df.corr().iloc[0,1], 2)
 
-    close = df["Close"]
-    volume = df["Volume"]
+def noticias():
+    url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey={ALPHA_KEY}"
+    r = requests.get(url)
+    data = r.json()
+    if "feed" not in data:
+        return ["Sem notícias disponíveis"]
+    noticias = []
+    for item in data["feed"][:3]:
+        noticias.append(item["title"])
+    return noticias
 
-    sma9 = close.rolling(9).mean()
-    sma21 = close.rolling(21).mean()
-    sma200 = close.rolling(200).mean()
+# ================= RELATORIO =================
 
-    rsi = ta.momentum.RSIIndicator(close).rsi()
-
-    variacao = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100
-
-    score = 0
-
-    # Estratégia agressiva
-    if sma9.iloc[-1] > sma21.iloc[-1]:
-        score += 2
-    else:
-        score -= 2
-
-    if close.iloc[-1] > sma200.iloc[-1]:
-        score += 2
-    else:
-        score -= 2
-
-    if variacao > 0:
-        score += 1
-    else:
-        score -= 1
-
-    if rsi.iloc[-1] < 70:
-        score += 1
-
-    if score >= 2:
-        sinal = "🟢 COMPRA"
-    elif score <= -2:
-        sinal = "🔴 VENDA"
-    else:
-        sinal = "🟡 NEUTRO"
-
-    return {
-        "ticker": ticker.replace(".SA",""),
-        "score": score,
-        "sinal": sinal,
-        "variacao": round(variacao,2)
-    }
-
-
-# ================= EXECUÇÃO =================
-async def executar():
-    sentimento = sentimento_global()
+async def enviar_relatorio():
+    sent, detalhes = sentimento_global()
     ibov = tendencia_ibov()
 
-    compras = []
-    vendas = []
-    neutras = []
-    ranking = []
+    msg = "📊 *RELATÓRIO GLOBAL + B3 ALEX*\n\n"
+    msg += f"🌍 Sentimento Global: {sent}\n"
+    msg += f"📈 Tendência IBOV: {ibov}\n\n"
 
-    for acao in ACOES:
-        resultado = analisar_acao(acao)
-        if resultado is None:
-            continue
+    msg += "📌 Índices Globais:\n"
+    for nome, var in detalhes.items():
+        msg += f"{nome}: {var}%\n"
 
-        ranking.append(resultado)
+    msg += "\n📌 Commodities:\n"
+    for nome, ticker in COMMODITIES.items():
+        var = variacao_dia(ticker)
+        if var:
+            msg += f"{nome}: {var}%\n"
 
-        if "COMPRA" in resultado["sinal"]:
-            compras.append(resultado)
-        elif "VENDA" in resultado["sinal"]:
-            vendas.append(resultado)
-        else:
-            neutras.append(resultado)
+    msg += "\n📌 Ações Brasil:\n"
+    for nome, ticker in ACOES.items():
+        var = variacao_dia(ticker)
+        if var:
+            msg += f"{nome}: {var}%\n"
 
-    ranking = sorted(ranking, key=lambda x: x["score"], reverse=True)
+    msg += "\n📌 Correlações:\n"
+    corr_vale = correlacao("VALE3.SA", "BZ=F")
+    corr_petro = correlacao("PETR4.SA", "CL=F")
+    msg += f"Vale ↔ Minério: {corr_vale}\n"
+    msg += f"Petrobras ↔ Petróleo: {corr_petro}\n"
 
-    mensagem = f"""
-########## RELATÓRIO B3 ALEX ##########
+    msg += "\n📌 Notícias Importantes:\n"
+    for n in noticias():
+        msg += f"• {n}\n"
 
-Sentimento Global: {sentimento}
-Tendência IBOV: {ibov}
+    await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
 
-==============================
-
-🟢 COMPRAS:
-"""
-
-    mensagem += "\n".join([f"{c['ticker']} | {c['variacao']}%" for c in compras]) if compras else "Nenhuma"
-
-    mensagem += "\n\n🔴 VENDAS:\n"
-    mensagem += "\n".join([f"{v['ticker']} | {v['variacao']}%" for v in vendas]) if vendas else "Nenhuma"
-
-    mensagem += "\n\n🔥 TOP 3 DO DIA:\n"
-    for top in ranking[:3]:
-        mensagem += f"{top['ticker']} ({top['variacao']}%)\n"
-
-    await bot.send_message(chat_id=CHAT_ID, text=mensagem)
-
+# ================= SCHEDULER =================
 
 async def scheduler():
     while True:
-        try:
-            await executar()
-        except Exception as e:
-            print("Erro:", e)
-
-        await asyncio.sleep(3600)
-
+        agora = datetime.now().time()
+        if agora >= time(9,0) and agora <= time(9,5):
+            await enviar_relatorio()
+            await asyncio.sleep(86400)
+        await asyncio.sleep(60)
 
 if __name__ == "__main__":
+    print("🚀 Robô Global iniciado")
     asyncio.run(scheduler())
