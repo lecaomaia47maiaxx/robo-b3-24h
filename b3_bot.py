@@ -1,12 +1,13 @@
 import asyncio
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from telegram import Bot
 import ta
 
-# ================= CONFIG =================
+# ================== IDENTIFICAÇÃO ==================
+print("🔥 ROBÔ B3 NOVO 100% ATIVO 🔥")
 
+# ================== CONFIG ==================
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
 
@@ -18,41 +19,25 @@ ACOES = [
     "WEGE3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA"
 ]
 
-# ================= DOWNLOAD =================
-
-def baixar_dados(ticker):
+# ================== DOWNLOAD ==================
+def baixar(ticker):
     try:
-        df = yf.Ticker(ticker).history(
-            period="6mo",
-            interval="1d",
-            auto_adjust=True
-        )
-
-        if df is None or df.empty:
-            print(f"[ERRO] {ticker} vazio")
+        df = yf.Ticker(ticker).history(period="6mo", interval="1d")
+        if df.empty:
             return None
-
-        df = df.dropna()
-        if len(df) < 50:
-            print(f"[ERRO] {ticker} poucos dados")
-            return None
-
-        return df
-
-    except Exception as e:
-        print(f"[ERRO DOWNLOAD] {ticker}: {e}")
+        return df.dropna()
+    except:
         return None
 
 
-# ================= SENTIMENTO GLOBAL =================
-
-def sentimento_mercado():
+# ================== SENTIMENTO GLOBAL ==================
+def sentimento_global():
     indices = ["^GSPC","^IXIC","^DJI","^GDAXI","^FTSE","^N225"]
     score = 0
 
-    for ticker in indices:
-        df = baixar_dados(ticker)
-        if df is None:
+    for ind in indices:
+        df = baixar(ind)
+        if df is None or len(df) < 2:
             continue
 
         if df["Close"].iloc[-1] > df["Close"].iloc[-2]:
@@ -68,27 +53,25 @@ def sentimento_mercado():
         return "NEUTRO 🌎"
 
 
-# ================= TENDÊNCIA IBOV =================
-
+# ================== TENDÊNCIA IBOV ==================
 def tendencia_ibov():
-    df = baixar_dados("^BVSP")
-    if df is None:
-        return "Indefinida"
+    df = baixar("^BVSP")
+    if df is None or len(df) < 200:
+        return "DADOS INSUFICIENTES"
 
     close = df["Close"]
-    sma200 = close.rolling(200).mean()
+    mm200 = close.rolling(200).mean()
 
-    if close.iloc[-1] > sma200.iloc[-1]:
-        return "Alta (acima da MM200) 📈"
+    if close.iloc[-1] > mm200.iloc[-1]:
+        return "ALTA (acima MM200) 📈"
     else:
-        return "Baixa (abaixo da MM200) 📉"
+        return "BAIXA (abaixo MM200) 📉"
 
 
-# ================= ANALISE AÇÃO =================
-
-def analisar_acao(ticker):
-    df = baixar_dados(ticker)
-    if df is None:
+# ================== ANALISE AÇÃO ==================
+def analisar(ticker):
+    df = baixar(ticker)
+    if df is None or len(df) < 200:
         return None
 
     close = df["Close"]
@@ -100,11 +83,10 @@ def analisar_acao(ticker):
 
     rsi = ta.momentum.RSIIndicator(close).rsi()
 
-    variacao_dia = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100
+    variacao = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100
 
     score = 0
 
-    # Estratégia mais agressiva
     if sma9.iloc[-1] > sma21.iloc[-1]:
         score += 1
     else:
@@ -120,12 +102,11 @@ def analisar_acao(ticker):
     if rsi.iloc[-1] > 30:
         score += 1
 
-    if variacao_dia > 0:
+    if variacao > 0:
         score += 1
     else:
         score -= 1
 
-    # Classificação
     if score >= 3:
         sinal = "🟢 COMPRA"
     elif score <= -2:
@@ -137,16 +118,13 @@ def analisar_acao(ticker):
         "ticker": ticker.replace(".SA",""),
         "score": score,
         "sinal": sinal,
-        "variacao": round(variacao_dia,2)
+        "variacao": round(variacao,2)
     }
 
 
-# ================= EXECUÇÃO =================
-
+# ================== EXECUÇÃO ==================
 async def executar():
-    print("Executando análise...")
-
-    sentimento = sentimento_mercado()
+    sentimento = sentimento_global()
     ibov = tendencia_ibov()
 
     compras = []
@@ -155,7 +133,7 @@ async def executar():
     ranking = []
 
     for acao in ACOES:
-        resultado = analisar_acao(acao)
+        resultado = analisar(acao)
         if resultado is None:
             continue
 
@@ -171,6 +149,8 @@ async def executar():
     ranking = sorted(ranking, key=lambda x: x["score"], reverse=True)
 
     mensagem = f"""
+🚀 ROBÔ B3 NOVO ATIVO
+
 📊 ANÁLISE DIÁRIA B3
 
 🌍 Sentimento Global: {sentimento}
@@ -181,24 +161,14 @@ async def executar():
 🟢 AÇÕES EM COMPRA:
 """
 
-    if compras:
-        for c in compras:
-            mensagem += f"{c['ticker']} | Score {c['score']} | {c['variacao']}%\n"
-    else:
-        mensagem += "Nenhuma\n"
+    mensagem += "\n".join([f"{c['ticker']} | {c['variacao']}%" for c in compras]) if compras else "Nenhuma"
 
-    mensagem += "\n🔴 AÇÕES EM VENDA:\n"
+    mensagem += "\n\n🔴 AÇÕES EM VENDA:\n"
+    mensagem += "\n".join([f"{v['ticker']} | {v['variacao']}%" for v in vendas]) if vendas else "Nenhuma"
 
-    if vendas:
-        for v in vendas:
-            mensagem += f"{v['ticker']} | Score {v['score']} | {v['variacao']}%\n"
-    else:
-        mensagem += "Nenhuma\n"
-
-    mensagem += "\n🔥 TOP 3 MAIS FORTES DO DIA:\n"
-
+    mensagem += "\n\n🔥 TOP 3 DO DIA:\n"
     for top in ranking[:3]:
-        mensagem += f"{top['ticker']} ({top['score']} pts | {top['variacao']}%)\n"
+        mensagem += f"{top['ticker']} ({top['variacao']}%)\n"
 
     await bot.send_message(chat_id=CHAT_ID, text=mensagem)
 
@@ -208,11 +178,10 @@ async def scheduler():
         try:
             await executar()
         except Exception as e:
-            print("Erro geral:", e)
+            print("Erro:", e)
 
-        await asyncio.sleep(3600)  # roda a cada 1 hora
+        await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":
-    print("Robô B3 iniciado...")
     asyncio.run(scheduler())
