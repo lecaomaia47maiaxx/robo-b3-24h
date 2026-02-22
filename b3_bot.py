@@ -9,7 +9,7 @@ from telegram import Bot
 # ================= CONFIGURAÇÕES =================
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
-ALPHA_KEY = "OYSICYD1972XILCB"  # Removido espaço inicial
+ALPHA_KEY = "OYSICYD1972XILCB"  
 
 bot = Bot(token=TOKEN)
 
