@@ -144,15 +144,26 @@ async def alertas_horarios():
 
 async def scheduler():
     print("🚀 Robô Institucional Ativo")
+
+    primeira_execucao = True
     while True:
         agora = datetime.now().time()
 
-        if agora >= time(9,0) and agora <= time(9,5):
-            await enviar_relatorio()
-            await asyncio.sleep(3600)
+       robo-b3-24h
+/
+# 🔥 TESTE IMEDIATO AO INICIAR
+if primeira_execucao:
+    relatorio = gerar_relatorio_global()
+    enviar_mensagem("🚀 TESTE RELATÓRIO IMEDIATO\n\n" + relatorio)
+    primeira_execucao = False
 
-        await alertas_horarios()
-        await asyncio.sleep(3600)
+# 🔔 RELATÓRIO OFICIAL 09:00
+if agora >= time(9,0) and agora <= time(9,5):
+    relatorio = gerar_relatorio_global()
+    enviar_mensagem(relatorio)
+    time.sleep(3600)
+
+
 
 if __name__ == "__main__":
     asyncio.run(scheduler())
