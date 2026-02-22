@@ -6,6 +6,7 @@ import numpy as np
 from datetime import datetime, time
 from telegram import Bot
 
+# ================= CONFIGURAÇÃO =================
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
 ALPHA_KEY = "OYSICYD1972XILCB"
@@ -14,7 +15,8 @@ bot = Bot(token=TOKEN)
 
 ACOES_LIQUIDAS = [
     "PETR4.SA","VALE3.SA","ITUB4.SA",
-    "BBDC4.SA","BBAS3.SA","WEGE3.SA"
+    "BBDC4.SA","BBAS3.SA","WEGE3.SA",
+    "ABEV3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA"
 ]
 
 # ================= FUNÇÕES BÁSICAS =================
@@ -23,22 +25,22 @@ def variacao_dia(ticker):
     df = yf.download(ticker, period="2d", interval="1d", progress=False)
     if len(df) < 2:
         return None
-    return round(((df["Close"].iloc[-1] / df["Close"].iloc[-2]) - 1) * 100, 2)
+    return round(((df["Close"].iloc[-1] / df["Close"].iloc[-2"]) - 1) * 100, 2)
 
-def correlacao(t1, t2):
-    df1 = yf.download(t1, period="1mo", progress=False)["Close"]
-    df2 = yf.download(t2, period="1mo", progress=False)["Close"]
+def correlacao(t1, t2, period="1mo"):
+    df1 = yf.download(t1, period=period, progress=False)["Close"]
+    df2 = yf.download(t2, period=period, progress=False)["Close"]
     df = pd.concat([df1, df2], axis=1).dropna()
     if len(df) < 10:
         return None
     return round(df.corr().iloc[0,1], 2)
 
-# ================= MÓDULOS NOVOS =================
+# ================= MÓDULOS =================
 
 def ewz_vs_ibov():
     ewz = variacao_dia("EWZ")
     ibov = variacao_dia("^BVSP")
-    corr = correlacao("EWZ", "^BVSP")
+    corr = correlacao("EWZ","^BVSP")
     return ewz, ibov, corr
 
 def fluxo_estrangeiro():
@@ -61,9 +63,15 @@ def moedas():
     return brl, eur, jpy
 
 def btc_vs_sp():
-    corr = correlacao("BTC-USD", "^GSPC")
+    corr = correlacao("BTC-USD","^GSPC")
     btc = variacao_dia("BTC-USD")
     return btc, corr
+
+def pre_market_usa():
+    sp500 = variacao_dia("^GSPC")
+    dow = variacao_dia("^DJI")
+    nasdaq = variacao_dia("^IXIC")
+    return sp500, dow, nasdaq
 
 def noticias():
     url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey={ALPHA_KEY}"
@@ -71,7 +79,15 @@ def noticias():
     data = r.json()
     if "feed" not in data:
         return ["Sem notícias disponíveis"]
-    return [item["title"] for item in data["feed"][:3]]
+    # Filtrar notícias de interesse: Petrobras, Vale, bancos
+    noticias_filtro = []
+    for item in data["feed"][:10]:
+        title = item["title"]
+        if any(p in title.lower() for p in ["petrobras","vale","itau","banco","bbas"]):
+            noticias_filtro.append(title)
+    if not noticias_filtro:
+        noticias_filtro = ["Sem notícias relevantes sobre Petrobras, Vale ou bancos"]
+    return noticias_filtro
 
 # ================= ALERTAS DE AÇÕES =================
 
@@ -97,6 +113,16 @@ def analisar_acao(ticker):
         return "VENDA"
     return None
 
+def top_5_acoes():
+    resultados = []
+    for acao in ACOES_LIQUIDAS:
+        sinal = analisar_acao(acao)
+        if sinal:
+            var = variacao_dia(acao)
+            resultados.append({"acao": acao.replace(".SA",""), "sinal": sinal, "variacao": var})
+    resultados = sorted(resultados, key=lambda x: abs(x["variacao"]), reverse=True)
+    return resultados[:5]
+
 # ================= RELATÓRIO GLOBAL =================
 
 async def enviar_relatorio():
@@ -106,22 +132,33 @@ async def enviar_relatorio():
     fluxo = fluxo_estrangeiro()
     brl, eur, jpy = moedas()
     btc, btc_corr = btc_vs_sp()
+    sp500, dow, nasdaq = pre_market_usa()
+
+    msg += "🌐 *Pre-market EUA*\n"
+    msg += f"S&P500: {sp500}% | Dow: {dow}% | Nasdaq: {nasdaq}%\n\n"
 
     msg += "📌 EWZ vs IBOV\n"
-    msg += f"EWZ: {ewz}% | IBOV: {ibov}%\n"
-    msg += f"Correlação: {corr}\n"
+    msg += f"EWZ: {ewz}% | IBOV: {ibov}% | Correlação: {corr}\n"
     msg += f"Fluxo Estrangeiro: {fluxo}\n\n"
 
     msg += "💱 Moedas vs USD\n"
     msg += f"BRL: {brl}% | EUR: {eur}% | JPY: {jpy}%\n\n"
 
     msg += "🪙 Bitcoin\n"
-    msg += f"BTC: {btc}%\n"
-    msg += f"Correlação BTC vs S&P500: {btc_corr}\n\n"
+    msg += f"BTC: {btc}% | Correlação S&P500: {btc_corr}\n\n"
 
-    msg += "📰 Notícias:\n"
+    msg += "📰 Notícias Relevantes\n"
     for n in noticias():
         msg += f"• {n}\n"
+
+    # Top 5 ações mais fortes
+    top5 = top_5_acoes()
+    if top5:
+        msg += "\n🔥 *TOP 5 AÇÕES COM SINAL* 🔥\n"
+        for t in top5:
+            msg += f"{t['acao']} | {t['sinal']} | {t['variacao']}%\n"
+    else:
+        msg += "\nNenhuma ação com sinal forte no momento"
 
     await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
 
@@ -133,8 +170,8 @@ async def alertas_horarios():
         sinal = analisar_acao(acao)
         if sinal:
             nome = acao.replace(".SA","")
-            mensagens.append(f"{nome}: {sinal}")
-
+            var = variacao_dia(acao)
+            mensagens.append(f"{nome}: {sinal} ({var}%)")
     if mensagens:
         texto = "🚨 *ALERTAS DO MOMENTO*\n\n" + "\n".join(mensagens)
         await bot.send_message(chat_id=CHAT_ID, text=texto, parse_mode="Markdown")
@@ -157,9 +194,9 @@ async def scheduler():
             # 📊 RELATÓRIO OFICIAL 09:00
             if time(9,0) <= agora <= time(9,5):
                 await enviar_relatorio()
-                await asyncio.sleep(3600)  # trava 1h após envio
+                await asyncio.sleep(3600)
 
-            # 🚨 ALERTAS HORÁRIOS - 1 em 1 hora
+            # 🚨 ALERTAS HORÁRIOS - 1h
             await alertas_horarios()
             await asyncio.sleep(3600)
 
