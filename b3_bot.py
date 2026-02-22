@@ -186,15 +186,10 @@ async def scheduler():
         try:
             agora = datetime.now().time()
 
-            # 🔥 TESTE IMEDIATO - apenas 1 vez
+            # 🔥 TESTE IMEDIATO AO INICIAR
             if primeira_execucao:
                 await enviar_relatorio()
                 primeira_execucao = False
-
-            # 📊 RELATÓRIO OFICIAL 09:00
-            if time(9,0) <= agora <= time(9,5):
-                await enviar_relatorio()
-                await asyncio.sleep(3600)
 
             # 🚨 ALERTAS HORÁRIOS - 1h
             await alertas_horarios()
