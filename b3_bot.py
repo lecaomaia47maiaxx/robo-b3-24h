@@ -6,41 +6,35 @@ import numpy as np
 from datetime import datetime, time
 from telegram import Bot
 
-# ================= CONFIGURAÇÃO =================
+# ================= CONFIGURAÇÕES =================
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
-ALPHA_KEY = "OYSICYD1972XILCB"
+ALPHA_KEY = "OYSICYD1972XILCB"  # Removido espaço inicial
 
 bot = Bot(token=TOKEN)
 
-ACOES_LIQUIDAS = [
-    "PETR4.SA","VALE3.SA","ITUB4.SA",
-    "BBDC4.SA","BBAS3.SA","WEGE3.SA",
-    "ABEV3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA"
-]
+ACOES_LIQUIDAS = ["PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA","WEGE3.SA","MGLU3.SA","ABEV3.SA","SUZB3.SA","RENT3.SA"]
 
-# ================= FUNÇÕES BÁSICAS =================
+# ================= FUNÇÕES =================
 
 def variacao_dia(ticker):
     df = yf.download(ticker, period="2d", interval="1d", progress=False)
     if len(df) < 2:
         return None
-    return round(((df["Close"].iloc[-1] / df["Close"].iloc[-2"]) - 1) * 100, 2)
+    return round(((df["Close"].iloc[-1] / df["Close"].iloc[-2]) - 1) * 100, 2)
 
-def correlacao(t1, t2, period="1mo"):
-    df1 = yf.download(t1, period=period, progress=False)["Close"]
-    df2 = yf.download(t2, period=period, progress=False)["Close"]
+def correlacao(t1, t2):
+    df1 = yf.download(t1, period="1mo", progress=False)["Close"]
+    df2 = yf.download(t2, period="1mo", progress=False)["Close"]
     df = pd.concat([df1, df2], axis=1).dropna()
     if len(df) < 10:
         return None
     return round(df.corr().iloc[0,1], 2)
 
-# ================= MÓDULOS =================
-
 def ewz_vs_ibov():
     ewz = variacao_dia("EWZ")
     ibov = variacao_dia("^BVSP")
-    corr = correlacao("EWZ","^BVSP")
+    corr = correlacao("EWZ", "^BVSP")
     return ewz, ibov, corr
 
 def fluxo_estrangeiro():
@@ -63,33 +57,20 @@ def moedas():
     return brl, eur, jpy
 
 def btc_vs_sp():
-    corr = correlacao("BTC-USD","^GSPC")
+    corr = correlacao("BTC-USD", "^GSPC")
     btc = variacao_dia("BTC-USD")
     return btc, corr
 
-def pre_market_usa():
-    sp500 = variacao_dia("^GSPC")
-    dow = variacao_dia("^DJI")
-    nasdaq = variacao_dia("^IXIC")
-    return sp500, dow, nasdaq
-
 def noticias():
-    url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey={ALPHA_KEY}"
-    r = requests.get(url)
-    data = r.json()
-    if "feed" not in data:
-        return ["Sem notícias disponíveis"]
-    # Filtrar notícias de interesse: Petrobras, Vale, bancos
-    noticias_filtro = []
-    for item in data["feed"][:10]:
-        title = item["title"]
-        if any(p in title.lower() for p in ["petrobras","vale","itau","banco","bbas"]):
-            noticias_filtro.append(title)
-    if not noticias_filtro:
-        noticias_filtro = ["Sem notícias relevantes sobre Petrobras, Vale ou bancos"]
-    return noticias_filtro
-
-# ================= ALERTAS DE AÇÕES =================
+    try:
+        url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey={ALPHA_KEY}"
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        if "feed" not in data:
+            return ["Sem notícias disponíveis"]
+        return [item["title"] for item in data["feed"][:5]]
+    except:
+        return ["Erro ao obter notícias"]
 
 def analisar_acao(ticker):
     df = yf.download(ticker, period="3mo", progress=False)
@@ -113,17 +94,7 @@ def analisar_acao(ticker):
         return "VENDA"
     return None
 
-def top_5_acoes():
-    resultados = []
-    for acao in ACOES_LIQUIDAS:
-        sinal = analisar_acao(acao)
-        if sinal:
-            var = variacao_dia(acao)
-            resultados.append({"acao": acao.replace(".SA",""), "sinal": sinal, "variacao": var})
-    resultados = sorted(resultados, key=lambda x: abs(x["variacao"]), reverse=True)
-    return resultados[:5]
-
-# ================= RELATÓRIO GLOBAL =================
+# ================= RELATÓRIO =================
 
 async def enviar_relatorio():
     msg = "📊 *RELATÓRIO GLOBAL + B3 ALEX*\n\n"
@@ -132,33 +103,23 @@ async def enviar_relatorio():
     fluxo = fluxo_estrangeiro()
     brl, eur, jpy = moedas()
     btc, btc_corr = btc_vs_sp()
-    sp500, dow, nasdaq = pre_market_usa()
 
-    msg += "🌐 *Pre-market EUA*\n"
-    msg += f"S&P500: {sp500}% | Dow: {dow}% | Nasdaq: {nasdaq}%\n\n"
+    msg += f"🌍 EWZ vs IBOV:\nEWZ: {ewz}% | IBOV: {ibov}%\nCorrelação: {corr}\nFluxo estrangeiro: {fluxo}\n\n"
+    msg += f"💱 Moedas vs USD:\nBRL: {brl}% | EUR: {eur}% | JPY: {jpy}%\n\n"
+    msg += f"🪙 Bitcoin:\nBTC: {btc}%\nCorrelação BTC x S&P500: {btc_corr}\n\n"
 
-    msg += "📌 EWZ vs IBOV\n"
-    msg += f"EWZ: {ewz}% | IBOV: {ibov}% | Correlação: {corr}\n"
-    msg += f"Fluxo Estrangeiro: {fluxo}\n\n"
-
-    msg += "💱 Moedas vs USD\n"
-    msg += f"BRL: {brl}% | EUR: {eur}% | JPY: {jpy}%\n\n"
-
-    msg += "🪙 Bitcoin\n"
-    msg += f"BTC: {btc}% | Correlação S&P500: {btc_corr}\n\n"
-
-    msg += "📰 Notícias Relevantes\n"
+    msg += "📰 Notícias importantes:\n"
     for n in noticias():
         msg += f"• {n}\n"
 
-    # Top 5 ações mais fortes
-    top5 = top_5_acoes()
-    if top5:
-        msg += "\n🔥 *TOP 5 AÇÕES COM SINAL* 🔥\n"
-        for t in top5:
-            msg += f"{t['acao']} | {t['sinal']} | {t['variacao']}%\n"
-    else:
-        msg += "\nNenhuma ação com sinal forte no momento"
+    msg += "\n📈 Ações mais líquidas com sinais:\n"
+    for acao in ACOES_LIQUIDAS[:5]:  # Top 5 mais líquidas
+        sinal = analisar_acao(acao)
+        nome = acao.replace(".SA","")
+        if sinal:
+            msg += f"🟢 {nome}: {sinal}\n"
+        else:
+            msg += f"🟡 {nome}: NEUTRO\n"
 
     await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
 
@@ -166,14 +127,14 @@ async def enviar_relatorio():
 
 async def alertas_horarios():
     mensagens = []
-    for acao in ACOES_LIQUIDAS:
+    for acao in ACOES_LIQUIDAS[:5]:
         sinal = analisar_acao(acao)
+        nome = acao.replace(".SA","")
         if sinal:
-            nome = acao.replace(".SA","")
-            var = variacao_dia(acao)
-            mensagens.append(f"{nome}: {sinal} ({var}%)")
+            mensagens.append(f"🚨 {nome}: {sinal}")
+
     if mensagens:
-        texto = "🚨 *ALERTAS DO MOMENTO*\n\n" + "\n".join(mensagens)
+        texto = "*ALERTAS DE COMPRA/VENDA*\n\n" + "\n".join(mensagens)
         await bot.send_message(chat_id=CHAT_ID, text=texto, parse_mode="Markdown")
 
 # ================= LOOP PRINCIPAL =================
@@ -181,23 +142,22 @@ async def alertas_horarios():
 async def scheduler():
     print("🚀 Robô Global iniciado com sucesso")
     primeira_execucao = True
-
     while True:
-        try:
-            agora = datetime.now().time()
+        agora = datetime.now().time()
 
-            # 🔥 TESTE IMEDIATO AO INICIAR
-            if primeira_execucao:
-                await enviar_relatorio()
-                primeira_execucao = False
+        # Teste imediato
+        if primeira_execucao:
+            await enviar_relatorio()
+            primeira_execucao = False
 
-            # 🚨 ALERTAS HORÁRIOS - 1h
-            await alertas_horarios()
-            await asyncio.sleep(3600)
+        # Relatório oficial 09:00
+        if agora >= time(9,0) and agora <= time(9,5):
+            await enviar_relatorio()
 
-        except Exception as e:
-            print("Erro no loop:", e)
-            await asyncio.sleep(60)
+        # Alertas 1h
+        await alertas_horarios()
+
+        await asyncio.sleep(3600)  # 1 hora
 
 # ================= EXECUÇÃO =================
 
