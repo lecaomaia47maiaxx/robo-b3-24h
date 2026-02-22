@@ -4,10 +4,10 @@ import pandas as pd
 from telegram import Bot
 import ta
 
-# ================== IDENTIFICAÇÃO ==================
-print("🔥 ROBÔ B3 NOVO 100% ATIVO 🔥")
+# ================= IDENTIFICAÇÃO =================
+print("########## ROBÔ B3 VERSÃO FINAL ALEX ##########")
 
-# ================== CONFIG ==================
+# ================= CONFIG =================
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
 
@@ -19,24 +19,24 @@ ACOES = [
     "WEGE3.SA","MGLU3.SA","SUZB3.SA","RENT3.SA"
 ]
 
-# ================== DOWNLOAD ==================
-def baixar(ticker):
+# ================= DOWNLOAD =================
+def baixar_dados(ticker):
     try:
-        df = yf.Ticker(ticker).history(period="6mo", interval="1d")
-        if df.empty:
+        df = yf.Ticker(ticker).history(period="1y", interval="1d")
+        if df is None or df.empty:
             return None
         return df.dropna()
     except:
         return None
 
 
-# ================== SENTIMENTO GLOBAL ==================
+# ================= SENTIMENTO GLOBAL =================
 def sentimento_global():
     indices = ["^GSPC","^IXIC","^DJI","^GDAXI","^FTSE","^N225"]
     score = 0
 
     for ind in indices:
-        df = baixar(ind)
+        df = baixar_dados(ind)
         if df is None or len(df) < 2:
             continue
 
@@ -46,31 +46,31 @@ def sentimento_global():
             score -= 1
 
     if score >= 2:
-        return "ALTISTA 🌍📈"
+        return "ALTISTA 📈"
     elif score <= -2:
-        return "BAIXISTA 🌍📉"
+        return "BAIXISTA 📉"
     else:
-        return "NEUTRO 🌎"
+        return "NEUTRO"
 
 
-# ================== TENDÊNCIA IBOV ==================
+# ================= TENDÊNCIA IBOV =================
 def tendencia_ibov():
-    df = baixar("^BVSP")
+    df = baixar_dados("^BVSP")
     if df is None or len(df) < 200:
-        return "DADOS INSUFICIENTES"
+        return "SEM DADOS"
 
     close = df["Close"]
     mm200 = close.rolling(200).mean()
 
     if close.iloc[-1] > mm200.iloc[-1]:
-        return "ALTA (acima MM200) 📈"
+        return "ALTA (MM200)"
     else:
-        return "BAIXA (abaixo MM200) 📉"
+        return "BAIXA (MM200)"
 
 
-# ================== ANALISE AÇÃO ==================
-def analisar(ticker):
-    df = baixar(ticker)
+# ================= ANALISE AÇÃO =================
+def analisar_acao(ticker):
+    df = baixar_dados(ticker)
     if df is None or len(df) < 200:
         return None
 
@@ -87,27 +87,26 @@ def analisar(ticker):
 
     score = 0
 
+    # Estratégia agressiva
     if sma9.iloc[-1] > sma21.iloc[-1]:
-        score += 1
+        score += 2
     else:
-        score -= 1
+        score -= 2
 
     if close.iloc[-1] > sma200.iloc[-1]:
-        score += 1
+        score += 2
     else:
-        score -= 1
-
-    if rsi.iloc[-1] < 70:
-        score += 1
-    if rsi.iloc[-1] > 30:
-        score += 1
+        score -= 2
 
     if variacao > 0:
         score += 1
     else:
         score -= 1
 
-    if score >= 3:
+    if rsi.iloc[-1] < 70:
+        score += 1
+
+    if score >= 2:
         sinal = "🟢 COMPRA"
     elif score <= -2:
         sinal = "🔴 VENDA"
@@ -122,7 +121,7 @@ def analisar(ticker):
     }
 
 
-# ================== EXECUÇÃO ==================
+# ================= EXECUÇÃO =================
 async def executar():
     sentimento = sentimento_global()
     ibov = tendencia_ibov()
@@ -133,7 +132,7 @@ async def executar():
     ranking = []
 
     for acao in ACOES:
-        resultado = analisar(acao)
+        resultado = analisar_acao(acao)
         if resultado is None:
             continue
 
@@ -149,21 +148,19 @@ async def executar():
     ranking = sorted(ranking, key=lambda x: x["score"], reverse=True)
 
     mensagem = f"""
-🚀 ROBÔ B3 NOVO ATIVO
+########## RELATÓRIO B3 ALEX ##########
 
-📊 ANÁLISE DIÁRIA B3
+Sentimento Global: {sentimento}
+Tendência IBOV: {ibov}
 
-🌍 Sentimento Global: {sentimento}
-📈 Tendência IBOV: {ibov}
+==============================
 
-━━━━━━━━━━━━━━━━━━
-
-🟢 AÇÕES EM COMPRA:
+🟢 COMPRAS:
 """
 
     mensagem += "\n".join([f"{c['ticker']} | {c['variacao']}%" for c in compras]) if compras else "Nenhuma"
 
-    mensagem += "\n\n🔴 AÇÕES EM VENDA:\n"
+    mensagem += "\n\n🔴 VENDAS:\n"
     mensagem += "\n".join([f"{v['ticker']} | {v['variacao']}%" for v in vendas]) if vendas else "Nenhuma"
 
     mensagem += "\n\n🔥 TOP 3 DO DIA:\n"
