@@ -2,15 +2,13 @@ import asyncio
 import requests
 import yfinance as yf
 import pandas as pd
-import os
 from datetime import datetime, time
 from telegram import Bot
 
-# ================= CONFIG =================
-
+# ================= CONFIGURAÇÃO =================
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
-ALPHA_KEY = " OYSICYD1972XILCB"
+ALPHA_KEY = "OYSICYD1972XILCB"
 
 bot = Bot(token=TOKEN)
 
@@ -41,13 +39,43 @@ def correlacao(t1, t2):
     except:
         return None
 
-# ================= MÓDULOS =================
+# ================= INDICADORES GLOBAIS =================
+
+def mercados_globais():
+    mercados = {
+        "Dow Jones": "^DJI",
+        "S&P500": "^GSPC",
+        "Nasdaq": "^IXIC",
+        "DAX": "^GDAXI",
+        "FTSE": "^FTSE",
+        "CAC": "^FCHI",
+        "Nikkei": "^N225",
+        "Hang Seng": "^HSI"
+    }
+    resultados = {}
+    for nome, ticker in mercados.items():
+        var = variacao_dia(ticker)
+        resultados[nome] = var
+    return resultados
+
+def commodities():
+    ativos = {
+        "Petróleo WTI": "CL=F",
+        "Ouro": "GC=F",
+        "Minério de ferro": "VALE3.SA"  # proxy para minério
+    }
+    resultados = {}
+    for nome, ticker in ativos.items():
+        var = variacao_dia(ticker)
+        resultados[nome] = var
+    return resultados
 
 def ewz_vs_ibov():
     ewz = variacao_dia("EWZ")
     ibov = variacao_dia("^BVSP")
     corr = correlacao("EWZ", "^BVSP")
-    return ewz, ibov, corr
+    tendencia = "Alta 📈" if ibov and ibov > 0 else "Baixa 📉"
+    return ewz, ibov, corr, tendencia
 
 def fluxo_estrangeiro():
     try:
@@ -57,26 +85,24 @@ def fluxo_estrangeiro():
         volume = df["Volume"].iloc[-1]
         media = df["Volume"].mean()
         if volume > media * 1.3:
-            return "Entrada forte"
+            return "Entrada estrangeira forte 📈"
         elif volume < media * 0.7:
-            return "Saída forte"
+            return "Saída estrangeira forte 📉"
         else:
-            return "Fluxo normal"
+            return "Fluxo neutro"
     except:
         return "Indefinido"
 
 def moedas():
-    return (
-        variacao_dia("BRL=X"),
-        variacao_dia("EURUSD=X"),
-        variacao_dia("JPY=X")
-    )
+    brl = variacao_dia("BRL=X")
+    eur = variacao_dia("EURUSD=X")
+    jpy = variacao_dia("JPY=X")
+    return brl, eur, jpy
 
 def btc_vs_sp():
-    return (
-        variacao_dia("BTC-USD"),
-        correlacao("BTC-USD", "^GSPC")
-    )
+    btc = variacao_dia("BTC-USD")
+    corr = correlacao("BTC-USD", "^GSPC")
+    return btc, corr
 
 def noticias():
     try:
@@ -85,11 +111,11 @@ def noticias():
         data = r.json()
         if "feed" not in data:
             return ["Sem notícias relevantes"]
-        return [item["title"] for item in data["feed"][:3]]
+        return [item["title"] for item in data["feed"][:5]]
     except:
         return ["Erro ao buscar notícias"]
 
-# ================= ANÁLISE TÉCNICA =================
+# ================= ANÁLISE DAS AÇÕES =================
 
 def analisar_acao(ticker):
     try:
@@ -109,49 +135,75 @@ def analisar_acao(ticker):
         rsi_atual = rsi.iloc[-1]
 
         if preco > mm21 and rsi_atual > 55:
-            return "COMPRA"
+            return "COMPRA 🔥"
         elif preco < mm21 and rsi_atual < 45:
-            return "VENDA"
-        return None
+            return "VENDA 🔻"
+        else:
+            return "NEUTRA 🟡"
     except:
         return None
 
-# ================= RELATÓRIO 09:00 =================
+# ================= RELATÓRIO GLOBAL =================
 
 async def enviar_relatorio():
-    msg = "📊 *RELATÓRIO GLOBAL + B3 ALEX*\n\n"
+    msg = "📊 *RELATÓRIO GLOBAL + B3 INSTITUCIONAL*\n\n"
 
-    ewz, ibov, corr = ewz_vs_ibov()
+    # Mercados globais
+    globais = mercados_globais()
+    msg += "🌎 *Mercados Globais*\n"
+    for m, v in globais.items():
+        if v is not None:
+            sinal = "📈 Positivo" if v > 0 else "📉 Negativo"
+            msg += f"{m}: {v}% ({sinal})\n"
+        else:
+            msg += f"{m}: Dados indisponíveis\n"
+    msg += "\n"
+
+    # Commodities
+    com = commodities()
+    msg += "⛏️ *Commodities*\n"
+    for c, v in com.items():
+        if v is not None:
+            sinal = "📈 Positivo" if v > 0 else "📉 Negativo"
+            msg += f"{c}: {v}% ({sinal})\n"
+        else:
+            msg += f"{c}: Dados indisponíveis\n"
+    msg += "\n"
+
+    # IBOV e EWZ
+    ewz, ibov, corr, tendencia = ewz_vs_ibov()
     fluxo = fluxo_estrangeiro()
+    msg += f"🇧🇷 *B3 / EWZ*\nIBOV: {ibov}% | EWZ: {ewz}%\nTendência IBOV: {tendencia}\nCorrelação EWZ x IBOV: {corr}\nFluxo estrangeiro: {fluxo}\n\n"
+
+    # Moedas
     brl, eur, jpy = moedas()
+    msg += f"💱 *Moedas vs USD*\nBRL: {brl}% | EUR: {eur}% | JPY: {jpy}%\n\n"
+
+    # Bitcoin
     btc, btc_corr = btc_vs_sp()
+    msg += f"🪙 *Bitcoin*\nBTC: {btc}% | Correlação BTC x S&P500: {btc_corr}\n\n"
 
-    msg += "📌 EWZ vs IBOV\n"
-    msg += f"EWZ: {ewz}% | IBOV: {ibov}%\n"
-    msg += f"Correlação: {corr}\n"
-    msg += f"Fluxo Estrangeiro: {fluxo}\n\n"
-
-    msg += "💱 Moedas vs USD\n"
-    msg += f"BRL: {brl}% | EUR: {eur}% | JPY: {jpy}%\n\n"
-
-    msg += "🪙 Bitcoin\n"
-    msg += f"BTC: {btc}%\n"
-    msg += f"Correlação BTC vs S&P500: {btc_corr}\n\n"
-
-    msg += "📰 Notícias:\n"
+    # Notícias
+    msg += "📰 *Notícias relevantes do dia:*\n"
     for n in noticias():
         msg += f"• {n}\n"
+    msg += "\n"
+
+    # Ações líquidas B3
+    msg += "📈 *Análise das ações mais líquidas*\n"
+    for acao in ACOES_LIQUIDAS:
+        sinal = analisar_acao(acao)
+        msg += f"{acao.replace('.SA','')}: {sinal}\n"
 
     await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
 
-# ================= ALERTAS 1H =================
+# ================= ALERTAS HORÁRIOS =================
 
 async def alertas_horarios():
     mensagens = []
-
     for acao in ACOES_LIQUIDAS:
         sinal = analisar_acao(acao)
-        if sinal:
+        if sinal in ["COMPRA 🔥","VENDA 🔻"]:
             nome = acao.replace(".SA","")
             mensagens.append(f"{nome}: {sinal}")
 
@@ -159,10 +211,10 @@ async def alertas_horarios():
         texto = "🚨 *ALERTAS DO MOMENTO*\n\n" + "\n".join(mensagens)
         await bot.send_message(chat_id=CHAT_ID, text=texto, parse_mode="Markdown")
 
-# ================= LOOP PRINCIPAL ESTÁVEL =================
+# ================= LOOP PRINCIPAL =================
 
 async def scheduler():
-    print("🚀 Robô Institucional Ativo")
+    print("🚀 Robô Institucional Máximo Ativo")
 
     primeira_execucao = True
 
@@ -170,15 +222,18 @@ async def scheduler():
         try:
             agora = datetime.now().time()
 
+            # 🔥 TESTE IMEDIATO
             if primeira_execucao:
                 await bot.send_message(chat_id=CHAT_ID, text="🚀 Robô Global iniciado com sucesso")
                 await enviar_relatorio()
                 primeira_execucao = False
 
+            # 📊 RELATÓRIO 09:00
             if time(9,0) <= agora <= time(9,5):
                 await enviar_relatorio()
                 await asyncio.sleep(3600)
 
+            # 🚨 ALERTAS HORÁRIOS
             await alertas_horarios()
             await asyncio.sleep(3600)
 
