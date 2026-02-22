@@ -2,10 +2,11 @@ import asyncio
 import requests
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import os
 from datetime import datetime, time
 from telegram import Bot
+
+# ================= CONFIG =================
 
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
@@ -21,20 +22,26 @@ ACOES_LIQUIDAS = [
 # ================= FUNÇÕES BÁSICAS =================
 
 def variacao_dia(ticker):
-    df = yf.download(ticker, period="2d", interval="1d", progress=False)
-    if len(df) < 2:
+    try:
+        df = yf.download(ticker, period="2d", interval="1d", progress=False)
+        if len(df) < 2:
+            return None
+        return round(((df["Close"].iloc[-1] / df["Close"].iloc[-2]) - 1) * 100, 2)
+    except:
         return None
-    return round(((df["Close"].iloc[-1] / df["Close"].iloc[-2]) - 1) * 100, 2)
 
 def correlacao(t1, t2):
-    df1 = yf.download(t1, period="1mo", progress=False)["Close"]
-    df2 = yf.download(t2, period="1mo", progress=False)["Close"]
-    df = pd.concat([df1, df2], axis=1).dropna()
-    if len(df) < 10:
+    try:
+        df1 = yf.download(t1, period="1mo", progress=False)["Close"]
+        df2 = yf.download(t2, period="1mo", progress=False)["Close"]
+        df = pd.concat([df1, df2], axis=1).dropna()
+        if len(df) < 10:
+            return None
+        return round(df.corr().iloc[0,1], 2)
+    except:
         return None
-    return round(df.corr().iloc[0,1], 2)
 
-# ================= MÓDULOS NOVOS =================
+# ================= MÓDULOS =================
 
 def ewz_vs_ibov():
     ewz = variacao_dia("EWZ")
@@ -43,60 +50,71 @@ def ewz_vs_ibov():
     return ewz, ibov, corr
 
 def fluxo_estrangeiro():
-    df = yf.download("EWZ", period="5d", progress=False)
-    if len(df) < 2:
+    try:
+        df = yf.download("EWZ", period="5d", progress=False)
+        if len(df) < 2:
+            return "Indefinido"
+        volume = df["Volume"].iloc[-1]
+        media = df["Volume"].mean()
+        if volume > media * 1.3:
+            return "Entrada forte"
+        elif volume < media * 0.7:
+            return "Saída forte"
+        else:
+            return "Fluxo normal"
+    except:
         return "Indefinido"
-    volume = df["Volume"].iloc[-1]
-    media = df["Volume"].mean()
-    if volume > media * 1.3:
-        return "Entrada forte"
-    elif volume < media * 0.7:
-        return "Saída forte"
-    else:
-        return "Fluxo normal"
 
 def moedas():
-    brl = variacao_dia("BRL=X")
-    eur = variacao_dia("EURUSD=X")
-    jpy = variacao_dia("JPY=X")
-    return brl, eur, jpy
+    return (
+        variacao_dia("BRL=X"),
+        variacao_dia("EURUSD=X"),
+        variacao_dia("JPY=X")
+    )
 
 def btc_vs_sp():
-    corr = correlacao("BTC-USD", "^GSPC")
-    btc = variacao_dia("BTC-USD")
-    return btc, corr
+    return (
+        variacao_dia("BTC-USD"),
+        correlacao("BTC-USD", "^GSPC")
+    )
 
 def noticias():
-    url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey={ALPHA_KEY}"
-    r = requests.get(url)
-    data = r.json()
-    if "feed" not in data:
-        return ["Sem notícias disponíveis"]
-    return [item["title"] for item in data["feed"][:3]]
+    try:
+        url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey={ALPHA_KEY}"
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        if "feed" not in data:
+            return ["Sem notícias relevantes"]
+        return [item["title"] for item in data["feed"][:3]]
+    except:
+        return ["Erro ao buscar notícias"]
 
-# ================= ALERTAS HORÁRIOS =================
+# ================= ANÁLISE TÉCNICA =================
 
 def analisar_acao(ticker):
-    df = yf.download(ticker, period="3mo", progress=False)
-    if len(df) < 30:
+    try:
+        df = yf.download(ticker, period="3mo", progress=False)
+        if len(df) < 30:
+            return None
+
+        close = df["Close"]
+        mm21 = close.rolling(21).mean().iloc[-1]
+        preco = close.iloc[-1]
+
+        delta = close.diff()
+        ganho = delta.clip(lower=0).rolling(14).mean()
+        perda = -delta.clip(upper=0).rolling(14).mean()
+        rs = ganho / perda
+        rsi = 100 - (100 / (1 + rs))
+        rsi_atual = rsi.iloc[-1]
+
+        if preco > mm21 and rsi_atual > 55:
+            return "COMPRA"
+        elif preco < mm21 and rsi_atual < 45:
+            return "VENDA"
         return None
-
-    close = df["Close"]
-    mm21 = close.rolling(21).mean().iloc[-1]
-    preco = close.iloc[-1]
-
-    delta = close.diff()
-    ganho = delta.clip(lower=0).rolling(14).mean()
-    perda = -delta.clip(upper=0).rolling(14).mean()
-    rs = ganho / perda
-    rsi = 100 - (100 / (1 + rs))
-    rsi_atual = rsi.iloc[-1]
-
-    if preco > mm21 and rsi_atual > 55:
-        return "COMPRA"
-    elif preco < mm21 and rsi_atual < 45:
-        return "VENDA"
-    return None
+    except:
+        return None
 
 # ================= RELATÓRIO 09:00 =================
 
@@ -130,6 +148,7 @@ async def enviar_relatorio():
 
 async def alertas_horarios():
     mensagens = []
+
     for acao in ACOES_LIQUIDAS:
         sinal = analisar_acao(acao)
         if sinal:
@@ -140,9 +159,7 @@ async def alertas_horarios():
         texto = "🚨 *ALERTAS DO MOMENTO*\n\n" + "\n".join(mensagens)
         await bot.send_message(chat_id=CHAT_ID, text=texto, parse_mode="Markdown")
 
-# ================= LOOP PRINCIPAL =================
-
-# ================= LOOP PRINCIPAL =================
+# ================= LOOP PRINCIPAL ESTÁVEL =================
 
 async def scheduler():
     print("🚀 Robô Institucional Ativo")
@@ -150,24 +167,26 @@ async def scheduler():
     primeira_execucao = True
 
     while True:
-        agora = datetime.now().time()
+        try:
+            agora = datetime.now().time()
 
-        # 🔥 TESTE IMEDIATO AO INICIAR
-        if primeira_execucao:
-            await bot.send_message(chat_id=CHAT_ID, text="🚀 TESTE IMEDIATO DO RELATÓRIO")
-            await enviar_relatorio()
-            primeira_execucao = False
+            if primeira_execucao:
+                await bot.send_message(chat_id=CHAT_ID, text="🚀 Robô Global iniciado com sucesso")
+                await enviar_relatorio()
+                primeira_execucao = False
 
-        # 📊 RELATÓRIO OFICIAL 09:00
-        if time(9,0) <= agora <= time(9,5):
-            await enviar_relatorio()
+            if time(9,0) <= agora <= time(9,5):
+                await enviar_relatorio()
+                await asyncio.sleep(3600)
+
+            await alertas_horarios()
             await asyncio.sleep(3600)
 
-        # 🚨 ALERTAS A CADA 1 HORA
-        await alertas_horarios()
+        except Exception as e:
+            print("Erro no loop:", e)
+            await asyncio.sleep(60)
 
-        await asyncio.sleep(3600)
-
+# ================= START =================
 
 if __name__ == "__main__":
     asyncio.run(scheduler())
