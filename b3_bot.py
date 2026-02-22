@@ -142,27 +142,31 @@ async def alertas_horarios():
 
 # ================= LOOP PRINCIPAL =================
 
+# ================= LOOP PRINCIPAL =================
+
 async def scheduler():
     print("🚀 Robô Institucional Ativo")
 
     primeira_execucao = True
+
     while True:
         agora = datetime.now().time()
 
-       robo-b3-24h
-/
-# 🔥 TESTE IMEDIATO AO INICIAR
-if primeira_execucao:
-    relatorio = gerar_relatorio_global()
-    enviar_mensagem("🚀 TESTE RELATÓRIO IMEDIATO\n\n" + relatorio)
-    primeira_execucao = False
+        # 🔥 TESTE IMEDIATO AO INICIAR
+        if primeira_execucao:
+            await bot.send_message(chat_id=CHAT_ID, text="🚀 TESTE IMEDIATO DO RELATÓRIO")
+            await enviar_relatorio()
+            primeira_execucao = False
 
-# 🔔 RELATÓRIO OFICIAL 09:00
-if agora >= time(9,0) and agora <= time(9,5):
-    relatorio = gerar_relatorio_global()
-    enviar_mensagem(relatorio)
-    time.sleep(3600)
+        # 📊 RELATÓRIO OFICIAL 09:00
+        if time(9,0) <= agora <= time(9,5):
+            await enviar_relatorio()
+            await asyncio.sleep(3600)
 
+        # 🚨 ALERTAS A CADA 1 HORA
+        await alertas_horarios()
+
+        await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":
