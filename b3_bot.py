@@ -9,9 +9,9 @@ from datetime import datetime
 
 # ================= CONFIG =================
 
-TELEGRAM_TOKEN = "SEU_TELEGRAM_TOKEN"
-CHAT_ID = "SEU_CHAT_ID"
-NEWS_API_KEY = "SUA_NEWS_API_KEY"
+TELEGRAM_TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
+CHAT_ID = "8352381582"
+NEWS_API_KEY = "OYSICYD1972XILCB"
 
 bot = Bot(token=TELEGRAM_TOKEN)
 
