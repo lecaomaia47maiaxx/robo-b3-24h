@@ -1,5 +1,4 @@
 import yfinance as yf
-import pandas as pd
 import requests
 import time
 import asyncio
@@ -16,46 +15,89 @@ NEWS_API_KEY = "OYSICYD1972XILCB"
 
 # ==========================================
 
-# ===== INDICADORES =====
+# ===== FUNÇÃO VARIAÇÃO ROBUSTA =====
+
+def get_variation(ticker):
+    try:
+        df = yf.download(
+            ticker,
+            period="5d",
+            interval="1d",
+            progress=False,
+            threads=False,
+            auto_adjust=True
+        )
+
+        if df.empty or len(df) < 2:
+            print(f"⚠ Dados insuficientes para {ticker}")
+            return "N/D"
+
+        var = ((df['Close'].iloc[-1] - df['Close'].iloc[-2]) /
+               df['Close'].iloc[-2]) * 100
+
+        return f"{round(var,2)}%"
+
+    except Exception as e:
+        print(f"❌ Erro variação {ticker}: {e}")
+        return "N/D"
+
+# ===== FUNÇÃO RSI + EMA ROBUSTA =====
 
 def get_rsi_signal(ticker):
     try:
-        df = yf.download(ticker, period="3mo", interval="1d", progress=False)
-        df.dropna(inplace=True)
+        df = yf.download(
+            ticker,
+            period="3mo",
+            interval="1d",
+            progress=False,
+            threads=False,
+            auto_adjust=True
+        )
+
+        if df.empty or len(df) < 30:
+            print(f"⚠ Dados insuficientes para {ticker}")
+            return "Dados insuficientes"
 
         ema9 = EMAIndicator(df['Close'], window=9).ema_indicator()
         ema21 = EMAIndicator(df['Close'], window=21).ema_indicator()
         rsi = RSIIndicator(df['Close'], window=14).rsi()
 
-        if ema9.iloc[-1] > ema21.iloc[-1] and rsi.iloc[-1] > 55:
-            return "🟢 COMPRA"
-        elif ema9.iloc[-1] < ema21.iloc[-1] and rsi.iloc[-1] < 45:
-            return "🔴 VENDA"
-        else:
-            return "⚪ NEUTRO"
-    except:
-        return "Erro análise"
+        rsi_atual = rsi.iloc[-1]
 
-def get_variation(ticker):
-    try:
-        df = yf.download(ticker, period="2d", interval="1d", progress=False)
-        var = ((df['Close'][-1] - df['Close'][-2]) / df['Close'][-2]) * 100
-        return round(var, 2)
-    except:
-        return 0
+        if ema9.iloc[-1] > ema21.iloc[-1] and rsi_atual > 55:
+            return f"🟢 COMPRA (RSI {round(rsi_atual,1)})"
+        elif ema9.iloc[-1] < ema21.iloc[-1] and rsi_atual < 45:
+            return f"🔴 VENDA (RSI {round(rsi_atual,1)})"
+        else:
+            return f"⚪ NEUTRO (RSI {round(rsi_atual,1)})"
+
+    except Exception as e:
+        print(f"❌ Erro análise {ticker}: {e}")
+        return "Erro análise"
 
 # ===== NOTÍCIAS =====
 
 def get_news(query):
     try:
-        url = f"https://newsapi.org/v2/everything?q={query}&language=pt&sortBy=publishedAt&pageSize=3&apiKey={NEWS_API_KEY}"
-        r = requests.get(url).json()
+        url = (
+            f"https://newsapi.org/v2/everything?"
+            f"q={query}&language=pt&sortBy=publishedAt&pageSize=2"
+            f"&apiKey={NEWS_API_KEY}"
+        )
+
+        r = requests.get(url, timeout=10).json()
+
+        if "articles" not in r or len(r["articles"]) == 0:
+            return "Sem notícias relevantes.\n"
+
         news = ""
-        if "articles" in r:
-            for art in r["articles"][:3]:
-                news += f"• {art['title']}\n"
-        return news if news else "Sem notícias relevantes.\n"
-    except:
+        for art in r["articles"][:2]:
+            news += f"• {art['title']}\n"
+
+        return news
+
+    except Exception as e:
+        print("❌ Erro notícias:", e)
         return "Erro ao buscar notícias.\n"
 
 # ===== RELATÓRIO =====
@@ -63,7 +105,7 @@ def get_news(query):
 def gerar_relatorio():
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    # Pre-market EUA
+    # EUA
     sp500 = get_variation("^GSPC")
     nasdaq = get_variation("^IXIC")
     dow = get_variation("^DJI")
@@ -74,14 +116,13 @@ def gerar_relatorio():
     btc = get_variation("BTC-USD")
     dxy = get_variation("DX-Y.NYB")
 
-    # Top 5 líquidas
+    # Top 5
     top5 = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "BBDC4.SA", "BBAS3.SA"]
+
     sinais = ""
     for acao in top5:
-        sinal = get_rsi_signal(acao)
-        sinais += f"{acao.replace('.SA','')} → {sinal}\n"
+        sinais += f"{acao.replace('.SA','')} → {get_rsi_signal(acao)}\n"
 
-    # Notícias
     noticias_mercado = get_news("mercado financeiro brasil")
     noticias_petr = get_news("PETR4 Petrobras")
     noticias_vale = get_news("VALE3 Vale")
@@ -92,17 +133,17 @@ def gerar_relatorio():
 ⏰ {agora}
 
 🇺🇸 PRE-MARKET EUA
-S&P500: {sp500}%
-Nasdaq: {nasdaq}%
-Dow: {dow}%
+S&P500: {sp500}
+Nasdaq: {nasdaq}
+Dow: {dow}
 
 🇧🇷 BRASIL
-IBOV: {ibov}%
-EWZ: {ewz}%
-DXY: {dxy}%
-BTC: {btc}%
+IBOV: {ibov}
+EWZ: {ewz}
+DXY: {dxy}
+BTC: {btc}
 
-🔥 TOP 5 MAIS LÍQUIDAS (RSI + EMA 9x21)
+🔥 TOP 5 MAIS LÍQUIDAS
 {sinais}
 
 📰 MERCADO
@@ -125,9 +166,13 @@ BTC: {btc}%
 # ===== ENVIO TELEGRAM V20 =====
 
 async def enviar_async():
-    bot = Bot(token=TELEGRAM_TOKEN)
-    msg = gerar_relatorio()
-    await bot.send_message(chat_id=CHAT_ID, text=msg)
+    try:
+        bot = Bot(token=TELEGRAM_TOKEN)
+        msg = gerar_relatorio()
+        await bot.send_message(chat_id=CHAT_ID, text=msg)
+        print("✅ Relatório enviado com sucesso")
+    except Exception as e:
+        print("❌ Erro envio Telegram:", e)
 
 def enviar_relatorio():
     asyncio.run(enviar_async())
@@ -135,7 +180,7 @@ def enviar_relatorio():
 # ===== LOOP PRINCIPAL =====
 
 if __name__ == "__main__":
-    print("🚀 Robô Institucional iniciado...")
+    print("🚀 Robô Institucional Blindado iniciado")
     enviar_relatorio()
 
     while True:
