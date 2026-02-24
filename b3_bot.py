@@ -5,9 +5,9 @@ import yfinance as yf
 
 from telegram.ext import ApplicationBuilder, ContextTypes
 
-# ==============================
+# ============================
 # CONFIGURAÇÕES
-# ==============================
+# ============================
 
 TELEGRAM_TOKEN = "8709112968:AAHvkruRIiOuGK07-PI8RBWVgp7jrHqlox8"
 CHAT_ID = "8352381582"
@@ -29,22 +29,9 @@ INDICES = {
     "BTC": "BTC-USD"
 }
 
-# ==============================
-# INDICADORES
-# ==============================
-
-def calcular_rsi(series, period=14):
-    delta = series.diff()
-    ganho = delta.clip(lower=0)
-    perda = -delta.clip(upper=0)
-
-    media_ganho = ganho.rolling(period).mean()
-    media_perda = perda.rolling(period).mean()
-
-    rs = media_ganho / media_perda
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
+# ============================
+# FUNÇÃO DOWNLOAD SEGURA
+# ============================
 
 def baixar_dados(ticker, periodo="3mo"):
     try:
@@ -56,18 +43,37 @@ def baixar_dados(ticker, periodo="3mo"):
             progress=False,
             threads=False
         )
+
         if df is None or df.empty:
             return None
 
         df = df.dropna()
         return df
+
     except:
         return None
 
+# ============================
+# RSI
+# ============================
 
-# ==============================
+def calcular_rsi(series, period=14):
+    delta = series.diff()
+
+    ganho = delta.clip(lower=0)
+    perda = -delta.clip(upper=0)
+
+    media_ganho = ganho.rolling(period).mean()
+    media_perda = perda.rolling(period).mean()
+
+    rs = media_ganho / media_perda
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi
+
+# ============================
 # ANÁLISE TÉCNICA
-# ==============================
+# ============================
 
 def analisar_ativo(ticker):
 
@@ -93,29 +99,33 @@ def analisar_ativo(ticker):
 
     return f"{sinal} | RSI {rsi_atual:.1f}"
 
-
-# ==============================
+# ============================
 # VARIAÇÃO DIÁRIA
-# ==============================
+# ============================
 
 def variacao_dia(ticker):
 
-    df = baixar_dados(ticker, periodo="5d")
+    try:
+        df = baixar_dados(ticker, periodo="5d")
 
-    if df is None or len(df) < 2:
+        if df is None or len(df) < 2:
+            return "N/D"
+
+        close = df["Close"]
+
+        ultimo = float(close.iloc[-1])
+        anterior = float(close.iloc[-2])
+
+        variacao = ((ultimo - anterior) / anterior) * 100
+
+        return f"{variacao:.2f}%"
+
+    except:
         return "N/D"
 
-    ultimo = df["Close"].iloc[-1]
-    anterior = df["Close"].iloc[-2]
-
-    variacao = ((ultimo - anterior) / anterior) * 100
-
-    return f"{variacao:.2f}%"
-
-
-# ==============================
+# ============================
 # RELATÓRIO
-# ==============================
+# ============================
 
 def gerar_relatorio():
 
@@ -145,10 +155,9 @@ def gerar_relatorio():
 
     return mensagem
 
-
-# ==============================
+# ============================
 # ENVIO AUTOMÁTICO
-# ==============================
+# ============================
 
 async def enviar_relatorio(context: ContextTypes.DEFAULT_TYPE):
     mensagem = gerar_relatorio()
@@ -157,16 +166,15 @@ async def enviar_relatorio(context: ContextTypes.DEFAULT_TYPE):
         text=mensagem
     )
 
-
-# ==============================
-# MAIN (SEM asyncio.run)
-# ==============================
+# ============================
+# MAIN ESTÁVEL
+# ============================
 
 def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Envia 1x ao iniciar
+    # Envia ao iniciar
     app.job_queue.run_once(enviar_relatorio, when=5)
 
     # Envia a cada 1 hora
@@ -176,10 +184,9 @@ def main():
         first=3600
     )
 
-    print("🚀 Robô institucional rodando estável...")
+    print("🚀 Robô Institucional B3 rodando estável...")
 
-    app.run_polling()
-
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
