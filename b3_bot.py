@@ -1,81 +1,82 @@
-from datetime import datetime
 import os
+import requests
 import yfinance as yf
-from flask import Flask, request
+import pandas as pd
+import ta
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
-from telegram import Bot, Update
-from telegram.ext import ApplicationBuilder, ContextTypes
-
-# =========================
-# CONFIG
-# =========================
-
-TELEGRAM_TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
+TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
-   
 
+# ===============================
+# FUNÇÃO DE ANÁLISE
+# ===============================
 
-ATIVOS = ["PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA"]
-
-# =========================
-# FUNÇÕES
-# =========================
-
-def variacao_dia(ticker):
+def analisar_ativo(ticker):
     try:
-        df = yf.download(ticker, period="5d", interval="1d", progress=False)
-        if df.empty or len(df) < 2:
-            return "N/D"
-        ultimo = float(df["Close"].iloc[-1])
-        anterior = float(df["Close"].iloc[-2])
-        var = ((ultimo - anterior)/anterior)*100
-        return f"{var:.2f}%"
-    except:
-        return "N/D"
+        df = yf.download(ticker, period="3mo", interval="1d", progress=False)
+
+        if df.empty:
+            return "Sem dados"
+
+        close = df["Close"].squeeze()
+
+        rsi = ta.momentum.RSIIndicator(close=close, window=14).rsi()
+        rsi_atual = float(rsi.dropna().iloc[-1])
+
+        if rsi_atual < 30:
+            return f"COMPRA (RSI {rsi_atual:.2f})"
+        elif rsi_atual > 70:
+            return f"VENDA (RSI {rsi_atual:.2f})"
+        else:
+            return f"NEUTRO (RSI {rsi_atual:.2f})"
+
+    except Exception as e:
+        return f"Erro: {str(e)}"
+
+# ===============================
+# RELATÓRIO
+# ===============================
 
 def gerar_relatorio():
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ativos = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "BBDC4.SA", "BBAS3.SA"]
 
-    texto = ""
-    for ativo in ATIVOS:
-        nome = ativo.replace(".SA","")
-        texto += f"{nome}: {variacao_dia(ativo)}\n"
+    texto = "📊 RELATÓRIO B3\n\n"
 
-    return f"""
-📊 RELATÓRIO B3
-⏰ {agora}
+    for ativo in ativos:
+        texto += f"{ativo} → {analisar_ativo(ativo)}\n"
 
-🔥 TOP 5
-{texto}
-"""
+    return texto
 
-# =========================
-# TELEGRAM APP
-# =========================
+# ===============================
+# COMANDO /start
+# ===============================
 
-app = Flask(__name__)
-application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-bot = Bot(token=TELEGRAM_TOKEN)
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text("Robô B3 iniciado 🚀\nDigite /relatorio para receber análise.")
 
-@app.route("/")
-def home():
-    return "Bot online"
+# ===============================
+# COMANDO /relatorio
+# ===============================
 
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    await application.process_update(update)
-    return "ok"
+def relatorio(update: Update, context: CallbackContext):
+    texto = gerar_relatorio()
+    update.message.reply_text(texto)
 
-@app.route("/relatorio")
-def relatorio_manual():
-    bot.send_message(chat_id=CHAT_ID, text=gerar_relatorio())
-    return "Relatório enviado"
+# ===============================
+# MAIN
+# ===============================
 
-# =========================
-# INICIALIZAÇÃO
-# =========================
+def main():
+    updater = Updater(TOKEN, use_context=True)
+
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("relatorio", relatorio))
+
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
-    bot.set_webhook(url=f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}")
-    app.run(host="0.0.0.0", port=8080)
+    main()
