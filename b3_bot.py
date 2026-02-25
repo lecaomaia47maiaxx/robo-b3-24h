@@ -10,7 +10,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes
 # CONFIG
 # =========================
 
-TELEGRAM_TOKEN = "8709112968:AAHvkruRIiOuGK07-PI8RBWVgp7jrHqlox8"
+TELEGRAM_TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
 CHAT_ID = "8352381582"
    
 
