@@ -8,8 +8,9 @@ from flask import Flask
 from telegram import Update, Bot
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
-TOKEN = os.getenv("8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc")
-CHAT_ID = os.getenv("8430351852")
+TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
+CHAT_ID = "8430351852"
+PORT = int(os.environ.get("PORT", 10000))
 
 app = Flask(__name__)
 
@@ -81,4 +82,4 @@ def rodar_bot():
 if __name__ == "__main__":
     threading.Thread(target=rodar_bot).start()
     threading.Thread(target=enviar_relatorio_automatico).start()
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=PORT)
