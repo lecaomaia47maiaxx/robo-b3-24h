@@ -1,11 +1,14 @@
 import os
 import yfinance as yf
 import ta
+import time
+from datetime import datetime
 
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
 TOKEN = "8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc"
+CHAT_ID = "8430351852"
 
 
 def analisar_ativo(ticker):
@@ -56,6 +59,19 @@ def relatorio(update: Update, context: CallbackContext):
     update.message.reply_text(gerar_relatorio())
 
 
+def enviar_relatorio_automatico():
+    bot = Bot(token=TOKEN)
+    while True:
+        agora = datetime.now()
+
+        # Envia relatório todo dia às 18:00
+        if agora.hour == 18 and agora.minute == 0:
+            bot.send_message(chat_id=CHAT_ID, text=gerar_relatorio())
+            time.sleep(60)
+
+        time.sleep(30)
+
+
 def main():
     updater = Updater(TOKEN, use_context=True)
 
@@ -64,6 +80,12 @@ def main():
     dp.add_handler(CommandHandler("relatorio", relatorio))
 
     print("Bot rodando...")
+
+    # Rodar envio automático em paralelo
+    import threading
+    t = threading.Thread(target=enviar_relatorio_automatico)
+    t.start()
+
     updater.start_polling(drop_pending_updates=True)
     updater.idle()
 
