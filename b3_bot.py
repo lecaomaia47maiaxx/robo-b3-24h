@@ -1,9 +1,9 @@
 import os
+import asyncio
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
-import asyncio
 
 load_dotenv()
 
@@ -33,7 +33,12 @@ async def webhook():
 def home():
     return "Bot rodando 24h!"
 
-# Configurar webhook ao iniciar
-@app.before_first_request
-def setup_webhook():
-    asyncio.run(application.bot.set_webhook(f"{URL}/{TOKEN}"))
+# Iniciar webhook quando iniciar o servidor
+async def set_webhook():
+    await application.bot.set_webhook(f"{URL}/{TOKEN}")
+
+asyncio.run(set_webhook())
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
