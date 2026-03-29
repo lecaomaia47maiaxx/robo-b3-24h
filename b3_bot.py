@@ -9,13 +9,13 @@ URL = os.environ.get("https://robo-b3-24h-1.onrender.com")
 app = Flask(__name__)
 application = Application.builder().token(TOKEN).build()
 
-# COMANDO START
+# Comando /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Bot B3 online 24h!")
 
 application.add_handler(CommandHandler("start", start))
 
-# WEBHOOK
+# Webhook
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
@@ -26,8 +26,7 @@ def webhook():
 def home():
     return "Bot rodando 24h!"
 
-# INICIAR
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+# Set webhook
+@app.before_first_request
+def setup_webhook():
     application.bot.set_webhook(f"{URL}/{TOKEN}")
-    app.run(host="0.0.0.0", port=port)
