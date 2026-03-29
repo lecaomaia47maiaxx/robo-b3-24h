@@ -1,1 +1,1 @@
-web: python b3_bot.py
+web: gunicorn b3_bot:app
