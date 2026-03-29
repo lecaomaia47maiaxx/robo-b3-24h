@@ -1,1 +1,1 @@
-worker: python b3_bot.py
+web: python b3_bot.py
