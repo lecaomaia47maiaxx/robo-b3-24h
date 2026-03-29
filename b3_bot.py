@@ -1,4 +1,11 @@
 import os
+
+TOKEN = os.environ.get("8430351852:AAF50usp88gBEQ9XAlS98pOCVs8aBNztAqc")
+URL = os.environ.get("https://robo-b3-24h-sap4.onrender.com")
+
+print("DEBUG TOKEN:", TOKEN)
+print("DEBUG URL:", URL)
+import os
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
