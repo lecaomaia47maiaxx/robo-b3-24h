@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN = "8649054750:AAG9zpiWu_Od9yy_47GW9VY3Ac1ad-ZK6ZE"
-URL = "https://robo-b3-24h-sap4.onrender.com"
+URL = "https://robo-b3-24h.onrender.com"
 
 print("TOKEN:", TOKEN)
 print("URL:", URL)
@@ -33,11 +33,11 @@ async def webhook():
 def home():
     return "Bot rodando 24h!"
 
-# Iniciar webhook quando iniciar o servidor
-async def set_webhook():
+# Iniciar webhook
+async def main():
     await application.bot.set_webhook(f"{URL}/{TOKEN}")
 
-asyncio.run(set_webhook())
+asyncio.run(main())
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
